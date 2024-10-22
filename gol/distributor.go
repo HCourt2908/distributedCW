@@ -32,7 +32,7 @@ func distributor(p Params, c distributorChannels) {
 
 	for i := range world {
 		for j := range world[i] {
-			world[j][i] = <-c.ioInput
+			world[i][j] = <-c.ioInput
 		}
 	}
 
@@ -77,6 +77,15 @@ func distributor(p Params, c distributorChannels) {
 	// TODO: Report the final state using FinalTurnCompleteEvent.
 
 	c.events <- FinalTurnComplete{CompletedTurns: p.Turns, Alive: res.AliveCells}
+
+	c.ioCommand <- ioOutput
+	filename = filename + "x" + strconv.Itoa(p.Turns)
+	c.ioFilename <- filename
+	for i := 0; i < p.ImageHeight; i++ {
+		for j := 0; j < p.ImageWidth; j++ {
+			c.ioOutput <- res.World[i][j]
+		}
+	}
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
