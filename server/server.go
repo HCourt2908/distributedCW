@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net"
 	"net/rpc"
 	"uk.ac.bris.cs/gameoflife/stubs"
@@ -10,19 +11,52 @@ import (
 
 type GolOperations struct{}
 
+var completedTurns int
+var numAliveCells int
+
+func holdCurrentState(updateStateTurns chan int, updateStateAlive chan int) {
+	for {
+		select {
+		case completedTurns = <-updateStateTurns:
+			numAliveCells = <-updateStateAlive
+		}
+
+	}
+}
+
 func (g *GolOperations) ProcessTurns(req stubs.Request, res *stubs.Response) (err error) {
+
+	updateStateTurns := make(chan int)
+	updateStateAlive := make(chan int)
+	go holdCurrentState(updateStateTurns, updateStateAlive)
 
 	world := req.World
 	ImageWidth := req.ImageWidth
 	ImageHeight := req.ImageHeight
 	Turns := req.Turns
 
+	numAliveCells := len(calculateAliveCells(ImageHeight, ImageWidth, world))
+	//completedTurnsChannel <- 1
+
 	for i := 0; i < Turns; i++ {
+		//completedTurnsChannel <- i
+		//aliveCellCountChannel <- numAliveCells
+		updateStateTurns <- i
+		updateStateAlive <- numAliveCells
 		world = calculateNextState(ImageHeight, ImageWidth, world)
+		numAliveCells = len(calculateAliveCells(ImageHeight, ImageWidth, world))
 	}
 
 	res.World = world
 	res.AliveCells = calculateAliveCells(ImageHeight, ImageWidth, world)
+
+	return
+}
+
+func (g *GolOperations) ReturnAliveCells(req stubs.Request, tickerRes *stubs.TickerResponse) (err error) {
+
+	tickerRes.NumAliveCells = numAliveCells
+	tickerRes.CompletedTurns = completedTurns
 
 	return
 }
@@ -79,6 +113,8 @@ func main() {
 	flag.Parse()
 	rpc.Register(&GolOperations{})
 	listener, _ := net.Listen("tcp", ":"+*pAddr)
+	fmt.Println("hi")
 	defer listener.Close()
 	rpc.Accept(listener)
+	fmt.Println("hello")
 }

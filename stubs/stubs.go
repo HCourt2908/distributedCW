@@ -5,6 +5,12 @@ import (
 )
 
 var GolHandler = "GolOperations.ProcessTurns"
+var AliveCellHandler = "GolOperations.ReturnAliveCells"
+
+type TickerResponse struct {
+	NumAliveCells  int
+	CompletedTurns int
+}
 
 type Response struct {
 	World      [][]byte

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/rpc"
 	"strconv"
+	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
 )
 
@@ -38,6 +39,8 @@ func distributor(p Params, c distributorChannels) {
 	turn := 0
 	c.events <- StateChange{turn, Executing}
 
+	ticker := time.NewTicker(2 * time.Second)
+
 	// TODO: Execute all turns of the Game of Life.
 
 	client, _ := rpc.Dial("tcp", "127.0.0.1:8030")
@@ -50,8 +53,26 @@ func distributor(p Params, c distributorChannels) {
 		Turns:       p.Turns,
 		World:       world,
 	}
+
 	res := new(stubs.Response)
+
+	tickerRes := new(stubs.TickerResponse)
+
+	go func() {
+		for range ticker.C {
+			client.Call(stubs.AliveCellHandler, req, tickerRes)
+
+			c.events <- AliveCellsCount{
+				CompletedTurns: tickerRes.CompletedTurns,
+				CellsCount:     tickerRes.NumAliveCells,
+			}
+		}
+
+	}()
+
 	client.Call(stubs.GolHandler, req, res)
+
+	ticker.Stop()
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
 
