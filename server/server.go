@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"net"
 	"net/rpc"
 	"uk.ac.bris.cs/gameoflife/stubs"
@@ -14,45 +13,48 @@ type GolOperations struct{}
 var completedTurns int
 var numAliveCells int
 
+//this goroutine holds the current number of completed turns and the number of alive cells.
+//when a new turn finishes executing, the completedTurns and numAliveCells global variables will be updated at the exact same time.
 func holdCurrentState(updateStateTurns chan int, updateStateAlive chan int) {
 	for {
 		select {
-		case completedTurns = <-updateStateTurns:
-			numAliveCells = <-updateStateAlive
+		case numAliveCells = <-updateStateAlive:
+			completedTurns = <-updateStateTurns
 		}
-
 	}
 }
 
+//this is the function that will process the turns of GOL
 func (g *GolOperations) ProcessTurns(req stubs.Request, res *stubs.Response) (err error) {
 
+	//two channels to send the turns processed and the alive cells
 	updateStateTurns := make(chan int)
 	updateStateAlive := make(chan int)
 	go holdCurrentState(updateStateTurns, updateStateAlive)
 
+	//copies the data contained in the request
 	world := req.World
 	ImageWidth := req.ImageWidth
 	ImageHeight := req.ImageHeight
 	Turns := req.Turns
 
-	numAliveCells := len(calculateAliveCells(ImageHeight, ImageWidth, world))
-	//completedTurnsChannel <- 1
-
+	//repeat this for the number of turns specified in input params
 	for i := 0; i < Turns; i++ {
-		//completedTurnsChannel <- i
-		//aliveCellCountChannel <- numAliveCells
+		//send the turn's state down the respective channels
+		updateStateAlive <- len(calculateAliveCells(ImageHeight, ImageWidth, world))
 		updateStateTurns <- i
-		updateStateAlive <- numAliveCells
+		//calculates the next state of the world
 		world = calculateNextState(ImageHeight, ImageWidth, world)
-		numAliveCells = len(calculateAliveCells(ImageHeight, ImageWidth, world))
 	}
 
+	//once all the turns have been calculated, copy the world into the response and calculate the alive cells for this world
 	res.World = world
 	res.AliveCells = calculateAliveCells(ImageHeight, ImageWidth, world)
 
 	return
 }
 
+// returns the number of turns that have passed so far, as well as the number of alive cells
 func (g *GolOperations) ReturnAliveCells(req stubs.Request, tickerRes *stubs.TickerResponse) (err error) {
 
 	tickerRes.NumAliveCells = numAliveCells
@@ -61,6 +63,7 @@ func (g *GolOperations) ReturnAliveCells(req stubs.Request, tickerRes *stubs.Tic
 	return
 }
 
+//code used directly from CSA Lab 1
 func calculateNextState(ImageHeight, ImageWidth int, world [][]byte) [][]byte {
 
 	newWorld := make([][]byte, ImageHeight)
@@ -111,10 +114,9 @@ func calculateAliveCells(ImageHeight, ImageWidth int, world [][]byte) []util.Cel
 func main() {
 	pAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
+	//registers the golOperations with rpc, to allow the client to call these functions
 	rpc.Register(&GolOperations{})
 	listener, _ := net.Listen("tcp", ":"+*pAddr)
-	fmt.Println("hi")
 	defer listener.Close()
 	rpc.Accept(listener)
-	fmt.Println("hello")
 }
