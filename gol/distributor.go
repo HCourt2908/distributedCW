@@ -75,7 +75,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 	go func() {
 		//this code executes whenever there's a new value in the ticker channel or a keystroke is detected
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(25 * time.Millisecond)
 
 		for {
 

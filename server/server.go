@@ -23,13 +23,11 @@ var paused bool = false
 var terminateTurns int
 var aliveCellCount int // current number of alive cells to be sent down channel
 
-var pauseMutex sync.Mutex
-
 //var terminateMutex sync.Mutex
 
 // this goroutine holds the current number of completed turns and the number of alive cells.
 // when a new turn finishes executing, the completedTurns and numAliveCells global variables will be updated at the exact same time.
-func holdCurrentState(updateAliveCells chan []util.Cell, updateStateTurns chan int, updateStateAlive chan int, updateStateWorld chan [][]byte, currStateRes *stubs.CurrentStateResponse) {
+func holdCurrentState(updateAliveCells chan []util.Cell, updateStateTurns chan int, updateStateAlive chan int, updateStateWorld chan [][]byte) {
 	for {
 		select {
 		case aliveCells = <-updateAliveCells:
@@ -53,7 +51,7 @@ func (g *GolOperations) ProcessTurns(req stubs.Request, currStateRes *stubs.Curr
 	updateStateWorld := make(chan [][]byte)
 	updateAliveCells := make(chan []util.Cell)
 
-	go holdCurrentState(updateAliveCells, updateStateTurns, updateStateAlive, updateStateWorld, currStateRes)
+	go holdCurrentState(updateAliveCells, updateStateTurns, updateStateAlive, updateStateWorld)
 
 	//copies the data contained in the request
 	world := req.World
