@@ -5,6 +5,7 @@ import (
 	"net/rpc"
 	"strconv"
 	"time"
+
 	"uk.ac.bris.cs/gameoflife/stubs"
 )
 
@@ -44,7 +45,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	//var clientClosedMutex sync.Mutex
 	//var turnsMutex sync.Mutex
 
-	clientClosed := false
 	turn := 0
 	c.events <- StateChange{turn, Executing}
 
@@ -67,19 +67,24 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}
 
 	//creates an empty response pointer for the server to return the final output of GOL
-	finalStateRes := new(stubs.FinalStateResponse)
+	currStateRes := new(stubs.CurrentStateResponse)
+	stateSaveRes := new(stubs.StateSaveResponse)
+	tickerRes := new(stubs.TickerResponse)
+	pauseProcessingRes := new(stubs.PauseProcessingResponse)
+	pause := false
 
 	go func() {
 		//this code executes whenever there's a new value in the ticker channel or a keystroke is detected
+		time.Sleep(50 * time.Millisecond)
+
 		for {
 
 			select {
 
 			case <-ticker.C:
 				//creates a new tickerResponse pointer for the server to return the output of GOL every two seconds
-				tickerRes := new(stubs.TickerResponse)
 				//the client calls the server requesting the current number of alive cells and how many turns have passed so far
-				client.Call(stubs.AliveCellHandler, fullInfoReq, tickerRes)
+				client.Call(stubs.AliveCellHandler, fullInfoReq, &tickerRes)
 
 				//creates a new event based on the server's response
 				c.events <- AliveCellsCount{
@@ -91,30 +96,16 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 				if keyPressed == 's' {
 					//generate pgm file of current state
-
-					//creates a new currentStateResponse pointer for the server to return the current state of the GOL world
-					currentStateRes := new(stubs.CurrentStateResponse)
-
-					//client calls server requesting current state of GOL world
-					client.Call(stubs.CurrentStateSave, fullInfoReq, currentStateRes)
+					client.Call(stubs.CurrentStateSave, fullInfoReq, &stateSaveRes)
 
 					//currentStateFileName
-					currentStateFileName := filename + "x" + strconv.Itoa(currentStateRes.CompletedTurns)
+					currentStateFileName := filename + "x" + strconv.Itoa(stateSaveRes.CompletedTurns)
 
-					makeOutputPGM(p, c, currentStateRes.World, currentStateFileName, currentStateRes.CompletedTurns)
+					makeOutputPGM(p, c, stateSaveRes.World, currentStateFileName, stateSaveRes.CompletedTurns)
 
 				} else if keyPressed == 'q' {
-					CloseClientRes := new(stubs.CloseClientResponse)
 					//close client without affecting the server
-					client.Call(stubs.CloseClientConnection, fullInfoReq, CloseClientRes)
-
-					//turnsMutex.Lock()
-					turn = CloseClientRes.CompletedTurns + 1
-					//turnsMutex.Unlock()
-
-					//clientClosedMutex.Lock()
-					clientClosed = true
-					//clientClosedMutex.Unlock()
+					client.Call(stubs.CloseClientConnection, fullInfoReq, &currStateRes)
 
 				} else if keyPressed == 'k' {
 					//close all components and generate pgm file of final state
@@ -122,32 +113,26 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 					//pause processing on AWS node, client print current turn being processed
 					//resume processing on AWS node, client print Continuing
 
-					//creates a new pauseProcessingRes pointer for the server to return whether it has been resumed or the turn it paused on
-					pauseProcessingRes := new(stubs.PauseProcessingResponse)
-
-					//client calls server requesting to toggle the pause (either resume processing or pause processing)
-					client.Call(stubs.PauseProcessingToggle, fullInfoReq, pauseProcessingRes)
-
-					fmt.Println(pauseProcessingRes.OutString)
-
 					//if the new state of the execution is paused
-					if pauseProcessingRes.PausedProcessing {
+					if pause {
+						client.Call(stubs.UnpauseProcessingToggle, fullInfoReq, &pauseProcessingRes)
+						fmt.Println(pauseProcessingRes.OutString)
 						c.events <- StateChange{
-							CompletedTurns: pauseProcessingRes.CompletedTurns + 1,
-							NewState:       Paused,
-						}
-					} else {
-						c.events <- StateChange{
-							CompletedTurns: pauseProcessingRes.CompletedTurns + 1,
+							CompletedTurns: pauseProcessingRes.CompletedTurns,
 							NewState:       Executing,
 						}
+						pause = false
+					} else {
+						client.Call(stubs.PauseProcessingToggle, fullInfoReq, &pauseProcessingRes)
+						fmt.Println(pauseProcessingRes.OutString)
+						c.events <- StateChange{
+							CompletedTurns: pauseProcessingRes.CompletedTurns,
+							NewState:       Paused,
+						}
+						pause = true
 					}
 
-					//turnsMutex.Lock()
-					if pauseProcessingRes.PausedProcessing {
-						turn = pauseProcessingRes.CompletedTurns + 1
-					}
-					//turnsMutex.Unlock()
+					//client calls server requesting to toggle the pause (either resume processing or pause processing)
 
 				}
 
@@ -158,32 +143,24 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}()
 
 	//client calls the server to process the turns of GOL
-	client.Call(stubs.GolHandler, fullInfoReq, finalStateRes)
+	client.Call(stubs.GolHandler, fullInfoReq, &currStateRes)
 
 	ticker.Stop()
 
-	//clientClosedMutex.Lock()
-	//turnsMutex.Lock()
-	if !clientClosed {
-		turn = p.Turns
-	}
-	//clientClosedMutex.Unlock()
-	//turnsMutex.Unlock()
-
 	// reports the final state using FinalTurnCompleteEvent
 
-	c.events <- FinalTurnComplete{CompletedTurns: turn, Alive: finalStateRes.AliveCells}
+	c.events <- FinalTurnComplete{CompletedTurns: currStateRes.TerminateTurns, Alive: currStateRes.AliveCells}
 
 	//updates filename for the final output PGM
-	finalOutFileName := filename + "x" + strconv.Itoa(turn)
+	finalOutFileName := filename + "x" + strconv.Itoa(currStateRes.TerminateTurns)
 
-	makeOutputPGM(p, c, finalStateRes.World, finalOutFileName, turn)
+	makeOutputPGM(p, c, currStateRes.World, finalOutFileName, currStateRes.TerminateTurns)
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
-	c.events <- StateChange{turn, Quitting}
+	c.events <- StateChange{currStateRes.TerminateTurns, Quitting}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)
