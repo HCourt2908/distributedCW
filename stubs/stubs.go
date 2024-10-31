@@ -8,15 +8,9 @@ var GolHandler = "GolOperations.ProcessTurns"
 // ReturnAliveCells returns how many turns have passed so far and how many cells are alive
 var AliveCellHandler = "GolOperations.ReturnAliveCells"
 
-// When we call ReturnAliveCells, we want to return the number of alive cells and how many turns have been completed
-type TickerResponse struct {
-	NumAliveCells  int
-	CompletedTurns int
-}
-
 // SaveCurrentState occurs when the client presses the s key. It will force output of a PGM file of the current state
 // TODO put this in the response and then use the output event to make output file
-var CurrentStateSave = "GolOperations.SaveCurrentState"
+var SaveCurrentState = "GolOperations.SaveCurrentState"
 
 // CloseClientConnection occurs when the client presses the q key. It severs the connection between the client and the server,
 // without causing an error on the server's side.
@@ -32,18 +26,18 @@ var CloseAllComponents = "GolOperations.CloseAllComponents"
 var PauseProcessingToggle = "GolOperations.PauseProcessingToggle"
 
 // When we call ProcessTurns, we want to provide the ImageWidth, ImageHeight, the number of turns to execute and the initial world
-type FullInfoRequest struct {
+type Request struct {
 	ImageWidth  int
 	ImageHeight int
 	Turns       int
 	World       [][]byte
 }
 
-type FullInfoResponse struct {
+type Response struct {
 	CompletedTurns int
 	World          [][]byte
-	NumAliveCells  int
 	AliveCells     []util.Cell
+	NumAliveCells  int
 	TerminateTurns int
 	OutString      string
 }
