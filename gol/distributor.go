@@ -42,14 +42,8 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}
 
-	//var clientClosedMutex sync.Mutex
-	//var turnsMutex sync.Mutex
-
 	turn := 0
 	c.events <- StateChange{turn, Executing}
-
-	//creates a new ticker to sound every two seconds
-	ticker := time.NewTicker(2 * time.Second)
 
 	//execute all turns of the Game of Life
 
@@ -59,7 +53,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	defer client.Close()
 
 	//creates a request to be sent to the server to process GOL
-	fullInfoReq := stubs.Request{
+	fullInfoReq := stubs.FullInfoRequest{
 		ImageWidth:  p.ImageWidth,
 		ImageHeight: p.ImageHeight,
 		Turns:       p.Turns,
@@ -67,24 +61,22 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}
 
 	//creates an empty response pointer for the server to return the final output of GOL
-	currStateRes := new(stubs.CurrentStateResponse)
-	stateSaveRes := new(stubs.StateSaveResponse)
+	fullInfoRes := new(stubs.FullInfoResponse)
 	tickerRes := new(stubs.TickerResponse)
-	pauseProcessingRes := new(stubs.PauseProcessingResponse)
-	pause := false
+	paused := false
 
-	a := client.Go(stubs.GolHandler, fullInfoReq, currStateRes, nil)
+	runGol := client.Go(stubs.GolHandler, fullInfoReq, fullInfoRes, nil)
 
-	//go func() {
-	//this code executes whenever there's a new value in the ticker channel or a keystroke is detected
-	//time.Sleep(25 * time.Millisecond)
+	//creates a new ticker to sound every two seconds
+	ticker := time.NewTicker(2 * time.Second)
+	time.Sleep(10 * time.Millisecond)
 
-	keep_going := true
-	for keep_going {
+	execute := true
+	for execute {
 
 		select {
-		case <-a.Done:
-			keep_going = false
+		case <-runGol.Done:
+			execute = false
 		case <-ticker.C:
 			//creates a new tickerResponse pointer for the server to return the output of GOL every two seconds
 			//the client calls the server requesting the current number of alive cells and how many turns have passed so far
@@ -101,72 +93,56 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		case keyPressed := <-keyPresses:
 
 			if keyPressed == 's' {
-				//generate pgm file of current state
-				client.Call(stubs.CurrentStateSave, fullInfoReq, stateSaveRes)
+				client.Call(stubs.CurrentStateSave, fullInfoReq, fullInfoRes)
 
-				//currentStateFileName
-				currentStateFileName := filename + "x" + strconv.Itoa(stateSaveRes.CompletedTurns)
+				currentStateFileName := filename + "x" + strconv.Itoa(fullInfoRes.CompletedTurns)
 
-				makeOutputPGM(p, c, stateSaveRes.World, currentStateFileName, stateSaveRes.CompletedTurns)
+				makeOutputPGM(p, c, fullInfoRes.World, currentStateFileName, fullInfoRes.CompletedTurns)
 
 			} else if keyPressed == 'q' {
 				//close client without affecting the server
-				client.Call(stubs.CloseClientConnection, fullInfoReq, currStateRes)
+				client.Call(stubs.CloseClientConnection, fullInfoReq, fullInfoRes)
 
 			} else if keyPressed == 'k' {
 				//close all components and generate pgm file of final state
 			} else if keyPressed == 'p' {
-				//pause processing on AWS node, client print current turn being processed
-				//resume processing on AWS node, client print Continuing
+
+				client.Call(stubs.PauseProcessingToggle, fullInfoReq, fullInfoRes)
+				fmt.Println("Current turn: " + fullInfoRes.OutString)
 
 				//if the new state of the execution is paused
-				if pause {
-					client.Call(stubs.UnpauseProcessingToggle, fullInfoReq, pauseProcessingRes)
-					fmt.Println(pauseProcessingRes.OutString)
+				if paused {
 					c.events <- StateChange{
-						CompletedTurns: pauseProcessingRes.CompletedTurns,
+						CompletedTurns: fullInfoRes.CompletedTurns,
 						NewState:       Executing,
 					}
-					pause = false
 				} else {
-					client.Call(stubs.PauseProcessingToggle, fullInfoReq, pauseProcessingRes)
-					fmt.Println(pauseProcessingRes.OutString)
 					c.events <- StateChange{
-						CompletedTurns: pauseProcessingRes.CompletedTurns,
+						CompletedTurns: fullInfoRes.CompletedTurns,
 						NewState:       Paused,
 					}
-					pause = true
 				}
-
-				//client calls server requesting to toggle the pause (either resume processing or pause processing)
-
+				paused = !paused
 			}
-
 		}
-
 	}
-
-	//}()
-
-	//client calls the server to process the turns of GOL
-	//client.Call(stubs.GolHandler, fullInfoReq, &currStateRes)
 
 	ticker.Stop()
 
 	// reports the final state using FinalTurnCompleteEvent
 
-	c.events <- FinalTurnComplete{CompletedTurns: currStateRes.TerminateTurns, Alive: currStateRes.AliveCells}
+	c.events <- FinalTurnComplete{CompletedTurns: fullInfoRes.TerminateTurns, Alive: fullInfoRes.AliveCells}
 
 	//updates filename for the final output PGM
-	finalOutFileName := filename + "x" + strconv.Itoa(currStateRes.TerminateTurns)
+	finalOutFileName := filename + "x" + strconv.Itoa(fullInfoRes.TerminateTurns)
 
-	makeOutputPGM(p, c, currStateRes.World, finalOutFileName, currStateRes.TerminateTurns)
+	makeOutputPGM(p, c, fullInfoRes.World, finalOutFileName, fullInfoRes.TerminateTurns)
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
-	c.events <- StateChange{currStateRes.TerminateTurns, Quitting}
+	c.events <- StateChange{fullInfoRes.TerminateTurns, Quitting}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)

@@ -18,38 +18,37 @@ var completedTurns int
 var aliveCells []util.Cell
 var numAliveCells int
 var currentWorld [][]byte
-var updateMutex sync.Mutex
+
 var terminate bool = false
 var paused bool = false
 var terminateTurns int
+var mutex sync.Mutex
 var endCurrentStateChan = make(chan bool)
 
 var currAliveCells []util.Cell
 var currAliveCellCount int // current number of alive cells to be sent down channel
 
-//var terminateMutex sync.Mutex
-
 // this goroutine holds the current number of completed turns and the number of alive cells.
 // when a new turn finishes executing, the completedTurns and numAliveCells global variables will be updated at the exact same time.
-func holdCurrentState(updateState chan bool, updateAliveCells chan []util.Cell, updateStateTurns chan int, updateStateAlive chan int, updateStateWorld chan [][]byte) {
+func holdCurrentState(updateState chan bool, updateAliveCells chan []util.Cell, updateStateTurns chan int, updateNumAliveCells chan int, updateStateWorld chan [][]byte) {
 	for {
 		select {
 		case <-endCurrentStateChan:
 			return
 		case <-updateState:
-			updateMutex.Lock()
+			mutex.Lock()
 			aliveCells = <-updateAliveCells
-			numAliveCells = <-updateStateAlive
+			numAliveCells = <-updateNumAliveCells
 			completedTurns = <-updateStateTurns
 			currentWorld = <-updateStateWorld
-			updateMutex.Unlock()
+			mutex.Unlock()
 
 		}
 	}
 }
 
 // this is the function that will process the turns of GOL
-func (g *GolOperations) ProcessTurns(req stubs.Request, currStateRes *stubs.CurrentStateResponse) (err error) {
+func (g *GolOperations) ProcessTurns(req stubs.FullInfoRequest, fullInfoRes *stubs.FullInfoResponse) (err error) {
 	// for new clients that take over
 	terminate = false
 	paused = false
@@ -57,11 +56,11 @@ func (g *GolOperations) ProcessTurns(req stubs.Request, currStateRes *stubs.Curr
 	//three channels to send the turns processed, the alive cells and the current world
 	updateState := make(chan bool)
 	updateStateTurns := make(chan int)
-	updateStateAlive := make(chan int)
+	updateNumAliveCells := make(chan int)
 	updateStateWorld := make(chan [][]byte)
 	updateAliveCells := make(chan []util.Cell)
 
-	go holdCurrentState(updateState, updateAliveCells, updateStateTurns, updateStateAlive, updateStateWorld)
+	go holdCurrentState(updateState, updateAliveCells, updateStateTurns, updateNumAliveCells, updateStateWorld)
 
 	//copies the data contained in the request
 	world := req.World
@@ -73,20 +72,20 @@ func (g *GolOperations) ProcessTurns(req stubs.Request, currStateRes *stubs.Curr
 	currAliveCells = calculateAliveCells(ImageHeight, ImageWidth, world)
 	currAliveCellCount = len(currAliveCells)
 
-	updateMutex.Lock()
-	aliveCells = currAliveCells
-	numAliveCells = currAliveCellCount
-	completedTurns = 0
-	currentWorld = world
-	updateMutex.Unlock()
-
 	/*
-		updateState <- true
-		updateAliveCells <- currAliveCells
-		updateStateAlive <- currAliveCellCount
-		updateStateTurns <- 0
-		updateStateWorld <- world
+		updateMutex.Lock()
+		aliveCells = currAliveCells
+		numAliveCells = currAliveCellCount
+		completedTurns = 0
+		currentWorld = world
+		updateMutex.Unlock()
 	*/
+
+	updateState <- true
+	updateAliveCells <- currAliveCells
+	updateNumAliveCells <- currAliveCellCount
+	updateStateTurns <- 0
+	updateStateWorld <- world
 
 	//repeat this for the number of turns specified in input params
 	for i := 0; i < Turns; i++ {
@@ -96,114 +95,110 @@ func (g *GolOperations) ProcessTurns(req stubs.Request, currStateRes *stubs.Curr
 		currAliveCells = calculateAliveCells(ImageHeight, ImageWidth, world)
 		currAliveCellCount = len(currAliveCells)
 
-		/* <- true
+		updateState <- true
 		updateAliveCells <- currAliveCells
-		updateStateAlive <- currAliveCellCount
+		updateNumAliveCells <- currAliveCellCount
 		updateStateTurns <- i + 1
 		updateStateWorld <- world
+
+		/*
+			updateMutex.Lock()
+			aliveCells = currAliveCells
+			numAliveCells = currAliveCellCount
+			completedTurns = i + 1
+			currentWorld = world
+			updateMutex.Unlock()
 		*/
-		updateMutex.Lock()
-		aliveCells = currAliveCells
-		numAliveCells = currAliveCellCount
-		completedTurns = i + 1
-		currentWorld = world
-		updateMutex.Unlock()
 
 		for {
 
-			updateMutex.Lock()
+			mutex.Lock()
 			if !paused {
-				updateMutex.Unlock()
+				mutex.Unlock()
 				break
 			}
-			updateMutex.Unlock()
+			mutex.Unlock()
 
 			// q and s still work even while the game is paused
-			updateMutex.Lock()
+			mutex.Lock()
 			if terminate {
 				terminateTurns = i + 1
-				updateMutex.Unlock()
+				mutex.Unlock()
 				break
 			}
-			updateMutex.Unlock()
+			mutex.Unlock()
 		}
 
 		// if q is pressed, terminate early
 
-		updateMutex.Lock()
+		mutex.Lock()
 		if terminate {
 			terminateTurns = i + 1
-			updateMutex.Unlock()
+			endCurrentStateChan <- true
+			mutex.Unlock()
 			break
 		}
-		updateMutex.Unlock()
+		mutex.Unlock()
 	}
 
-	updateMutex.Lock()
+	mutex.Lock()
 	if !terminate {
-		currStateRes.TerminateTurns = Turns
+		fullInfoRes.TerminateTurns = Turns
 	} else {
-		currStateRes.TerminateTurns = terminateTurns
+		fullInfoRes.TerminateTurns = terminateTurns
 	}
 
-	currStateRes.World = world
-	currStateRes.AliveCells = aliveCells
-	updateMutex.Unlock()
+	fullInfoRes.World = world
+	fullInfoRes.AliveCells = aliveCells
+	mutex.Unlock()
 
 	fmt.Println("TESTTTTTT")
 	return
 }
 
 // returns the number of turns that have passed so far, as well as the number of alive cells
-func (g *GolOperations) ReturnAliveCells(req stubs.Request, tickerRes *stubs.TickerResponse) (err error) {
+func (g *GolOperations) ReturnAliveCells(req stubs.FullInfoRequest, tickerRes *stubs.TickerResponse) (err error) {
 
-	updateMutex.Lock()
+	mutex.Lock()
 	tickerRes.NumAliveCells = numAliveCells
 	tickerRes.CompletedTurns = completedTurns
-	updateMutex.Unlock()
+	mutex.Unlock()
 
 	return
 }
 
-func (g *GolOperations) SaveCurrentState(req stubs.Request, currentStateRes *stubs.CurrentStateResponse) (err error) {
+func (g *GolOperations) SaveCurrentState(req stubs.FullInfoRequest, fullInfoRes *stubs.FullInfoResponse) (err error) {
 
-	updateMutex.Lock()
-	currentStateRes.World = currentWorld
-	currentStateRes.CompletedTurns = completedTurns
-	updateMutex.Unlock()
-
-	return
-}
-
-func (g *GolOperations) PauseProcessingToggle(req stubs.Request, pauseProcessingRes *stubs.PauseProcessingResponse) (err error) {
-
-	updateMutex.Lock()
-	pauseProcessingRes.CompletedTurns = completedTurns + 1
-	pauseProcessingRes.OutString = strconv.Itoa(completedTurns + 1)
-	paused = true
-	updateMutex.Unlock()
+	mutex.Lock()
+	fullInfoRes.World = currentWorld
+	fullInfoRes.CompletedTurns = completedTurns
+	mutex.Unlock()
 
 	return
 }
 
-func (g *GolOperations) UnpauseProcessingToggle(req stubs.Request, pauseProcessingRes *stubs.PauseProcessingResponse) (err error) {
+func (g *GolOperations) PauseProcessingToggle(req stubs.FullInfoRequest, fullInfoRes *stubs.FullInfoResponse) (err error) {
 
-	updateMutex.Lock()
-	pauseProcessingRes.OutString = "Continuing"
-	pauseProcessingRes.CompletedTurns = completedTurns
-	paused = false
-	updateMutex.Unlock()
+	mutex.Lock()
+	if paused {
+		fullInfoRes.OutString = "Continuing"
+		fullInfoRes.CompletedTurns = completedTurns
+	} else {
+		fullInfoRes.CompletedTurns = completedTurns + 1
+		fullInfoRes.OutString = strconv.Itoa(completedTurns + 1)
+	}
+	paused = !paused
+	mutex.Unlock()
 
 	return
 }
 
-func (g *GolOperations) CloseClientConnection(req stubs.Request, currStateRes *stubs.CurrentStateResponse) (err error) {
+func (g *GolOperations) CloseClientConnection(req stubs.FullInfoRequest, fullInfoRes *stubs.FullInfoResponse) (err error) {
 
 	//the client wants to disconnect, so we will set clientConnected to false
-	updateMutex.Lock()
+	mutex.Lock()
 	terminate = true
-	endCurrentStateChan <- true
-	updateMutex.Unlock()
+	mutex.Unlock()
 
 	return
 

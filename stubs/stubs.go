@@ -5,12 +5,6 @@ import "uk.ac.bris.cs/gameoflife/util"
 // ProcessTurns executes all the specified turns of GOL
 var GolHandler = "GolOperations.ProcessTurns"
 
-// When we call ProcessTurns, we want to return the final state world and a slice of all the alive cells
-type FinalStateResponse struct {
-	World      [][]byte
-	AliveCells []util.Cell
-}
-
 // ReturnAliveCells returns how many turns have passed so far and how many cells are alive
 var AliveCellHandler = "GolOperations.ReturnAliveCells"
 
@@ -24,31 +18,9 @@ type TickerResponse struct {
 // TODO put this in the response and then use the output event to make output file
 var CurrentStateSave = "GolOperations.SaveCurrentState"
 
-type StateSaveResponse struct {
-	CompletedTurns int
-	World          [][]byte
-}
-
-// When we call CurrentStateSave, we want to return the current state of the GOL world,
-// as well as the number of turns completed for unique filenaming
-type CurrentStateResponse struct {
-	CompletedTurns int
-	World          [][]byte
-	NumAliveCells  int
-	AliveCells     []util.Cell
-	Paused         bool
-	Terminate      bool
-	TerminateTurns int
-	OutString      string
-}
-
 // CloseClientConnection occurs when the client presses the q key. It severs the connection between the client and the server,
 // without causing an error on the server's side.
 var CloseClientConnection = "GolOperations.CloseClientConnection"
-
-type CloseClientResponse struct {
-	CompletedTurns int
-}
 
 // CloseAllComponents occurs when the client presses the k key. It outputs a PGM file of the current state, and then close
 // both the server and the client. CurrentStateResponse can be reused for the response here.
@@ -59,18 +31,19 @@ var CloseAllComponents = "GolOperations.CloseAllComponents"
 // Resume processing on the server and have the client print Continuing
 var PauseProcessingToggle = "GolOperations.PauseProcessingToggle"
 
-var UnpauseProcessingToggle = "GolOperations.UnpauseProcessingToggle"
-
-// When we call PauseProcessingToggle, a string will be printed on the clients side, the contents of OutString.
-type PauseProcessingResponse struct {
-	OutString      string
-	CompletedTurns int
-}
-
 // When we call ProcessTurns, we want to provide the ImageWidth, ImageHeight, the number of turns to execute and the initial world
-type Request struct {
+type FullInfoRequest struct {
 	ImageWidth  int
 	ImageHeight int
 	Turns       int
 	World       [][]byte
+}
+
+type FullInfoResponse struct {
+	CompletedTurns int
+	World          [][]byte
+	NumAliveCells  int
+	AliveCells     []util.Cell
+	TerminateTurns int
+	OutString      string
 }
