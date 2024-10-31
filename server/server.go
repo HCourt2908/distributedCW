@@ -80,11 +80,9 @@ func (g *GolOperations) ProcessTurns(req stubs.Request, res *stubs.Response) (er
 		currAliveCellCount = len(calculateAliveCells(ImageHeight, ImageWidth, world))
 
 		// send the current state down the respective channels
-		// count is incremented manually because it isn't
-		// auto-incremented until start of next turn
 		updateState <- true
 		updateNumAliveCells <- currAliveCellCount
-		updateStateTurns <- count + 1
+		updateStateTurns <- count + 1 // count is incremented manually because it isn't auto-incremented until start of next turn
 		updateStateWorld <- world
 
 		for {
