@@ -66,6 +66,9 @@ func TestAlive(t *testing.T) {
 
 				if i >= 5 {
 					keyPresses <- 'q'
+					// Jed's test modification - mention in report
+					for range events {
+					}
 					return
 				}
 			}

@@ -73,77 +73,83 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	pauseProcessingRes := new(stubs.PauseProcessingResponse)
 	pause := false
 
-	go func() {
-		//this code executes whenever there's a new value in the ticker channel or a keystroke is detected
-		time.Sleep(25 * time.Millisecond)
+	a := client.Go(stubs.GolHandler, fullInfoReq, currStateRes, nil)
 
-		for {
+	//go func() {
+	//this code executes whenever there's a new value in the ticker channel or a keystroke is detected
+	//time.Sleep(25 * time.Millisecond)
 
-			select {
+	keep_going := true
+	for keep_going {
 
-			case <-ticker.C:
-				//creates a new tickerResponse pointer for the server to return the output of GOL every two seconds
-				//the client calls the server requesting the current number of alive cells and how many turns have passed so far
-				client.Call(stubs.AliveCellHandler, fullInfoReq, &tickerRes)
+		select {
+		case <-a.Done:
+			keep_going = false
+		case <-ticker.C:
+			//creates a new tickerResponse pointer for the server to return the output of GOL every two seconds
+			//the client calls the server requesting the current number of alive cells and how many turns have passed so far
+			client.Call(stubs.AliveCellHandler, fullInfoReq, tickerRes)
 
-				//creates a new event based on the server's response
-				c.events <- AliveCellsCount{
-					CompletedTurns: tickerRes.CompletedTurns,
-					CellsCount:     tickerRes.NumAliveCells,
-				}
+			//creates a new event based on the server's response
+			c.events <- AliveCellsCount{
+				CompletedTurns: tickerRes.CompletedTurns,
+				CellsCount:     tickerRes.NumAliveCells,
+			}
 
-			case keyPressed := <-keyPresses:
+			fmt.Println(tickerRes.CompletedTurns, tickerRes.NumAliveCells)
 
-				if keyPressed == 's' {
-					//generate pgm file of current state
-					client.Call(stubs.CurrentStateSave, fullInfoReq, &stateSaveRes)
+		case keyPressed := <-keyPresses:
 
-					//currentStateFileName
-					currentStateFileName := filename + "x" + strconv.Itoa(stateSaveRes.CompletedTurns)
+			if keyPressed == 's' {
+				//generate pgm file of current state
+				client.Call(stubs.CurrentStateSave, fullInfoReq, stateSaveRes)
 
-					makeOutputPGM(p, c, stateSaveRes.World, currentStateFileName, stateSaveRes.CompletedTurns)
+				//currentStateFileName
+				currentStateFileName := filename + "x" + strconv.Itoa(stateSaveRes.CompletedTurns)
 
-				} else if keyPressed == 'q' {
-					//close client without affecting the server
-					client.Call(stubs.CloseClientConnection, fullInfoReq, &currStateRes)
+				makeOutputPGM(p, c, stateSaveRes.World, currentStateFileName, stateSaveRes.CompletedTurns)
 
-				} else if keyPressed == 'k' {
-					//close all components and generate pgm file of final state
-				} else if keyPressed == 'p' {
-					//pause processing on AWS node, client print current turn being processed
-					//resume processing on AWS node, client print Continuing
+			} else if keyPressed == 'q' {
+				//close client without affecting the server
+				client.Call(stubs.CloseClientConnection, fullInfoReq, currStateRes)
 
-					//if the new state of the execution is paused
-					if pause {
-						client.Call(stubs.UnpauseProcessingToggle, fullInfoReq, &pauseProcessingRes)
-						fmt.Println(pauseProcessingRes.OutString)
-						c.events <- StateChange{
-							CompletedTurns: pauseProcessingRes.CompletedTurns,
-							NewState:       Executing,
-						}
-						pause = false
-					} else {
-						client.Call(stubs.PauseProcessingToggle, fullInfoReq, &pauseProcessingRes)
-						fmt.Println(pauseProcessingRes.OutString)
-						c.events <- StateChange{
-							CompletedTurns: pauseProcessingRes.CompletedTurns,
-							NewState:       Paused,
-						}
-						pause = true
+			} else if keyPressed == 'k' {
+				//close all components and generate pgm file of final state
+			} else if keyPressed == 'p' {
+				//pause processing on AWS node, client print current turn being processed
+				//resume processing on AWS node, client print Continuing
+
+				//if the new state of the execution is paused
+				if pause {
+					client.Call(stubs.UnpauseProcessingToggle, fullInfoReq, pauseProcessingRes)
+					fmt.Println(pauseProcessingRes.OutString)
+					c.events <- StateChange{
+						CompletedTurns: pauseProcessingRes.CompletedTurns,
+						NewState:       Executing,
 					}
-
-					//client calls server requesting to toggle the pause (either resume processing or pause processing)
-
+					pause = false
+				} else {
+					client.Call(stubs.PauseProcessingToggle, fullInfoReq, pauseProcessingRes)
+					fmt.Println(pauseProcessingRes.OutString)
+					c.events <- StateChange{
+						CompletedTurns: pauseProcessingRes.CompletedTurns,
+						NewState:       Paused,
+					}
+					pause = true
 				}
+
+				//client calls server requesting to toggle the pause (either resume processing or pause processing)
 
 			}
 
 		}
 
-	}()
+	}
+
+	//}()
 
 	//client calls the server to process the turns of GOL
-	client.Call(stubs.GolHandler, fullInfoReq, &currStateRes)
+	//client.Call(stubs.GolHandler, fullInfoReq, &currStateRes)
 
 	ticker.Stop()
 
