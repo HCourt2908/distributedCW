@@ -51,7 +51,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	client, _ := rpc.Dial("tcp", "127.0.0.1:8030")
 	defer client.Close()
 
-	//creates a request to be sent to the server to process GOL
+	// creates a request to be sent to the server to process GOL
 	req := stubs.Request{
 		ImageWidth:  p.ImageWidth,
 		ImageHeight: p.ImageHeight,
@@ -59,14 +59,19 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		World:       world,
 	}
 
+	// creates a response to hold GoL attributes
 	res := new(stubs.Response)
-	paused := false
 
+	paused := false // game is initially not paused
+
+	// RPC call runs concurrently with execute loop
 	runGol := client.Go(stubs.GolHandler, req, res, nil)
 
 	//creates a new ticker to sound every two seconds
 	ticker := time.NewTicker(2 * time.Second)
 
+	// momentarily pauses to give time for game to initialise
+	// as un-paused and not terminating
 	time.Sleep(10 * time.Millisecond)
 
 	execute := true
@@ -77,8 +82,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			execute = false
 
 		case <-ticker.C:
-			//creates a new tickerResponse pointer for the server to return the output of GOL every two seconds
-			//the client calls the server requesting the current number of alive cells and how many turns have passed so far
+			// RPC call for ticker
 			client.Call(stubs.AliveCellHandler, req, res)
 
 			//creates a new event based on the server's response
@@ -97,30 +101,30 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				makeOutputPGM(p, c, res.World, currentStateFileName, res.CompletedTurns)
 
 			} else if keyPressed == 'q' {
-				//close client without affecting the server
+				// close client without affecting the server
 				client.Call(stubs.CloseClientConnection, req, res)
 
 			} else if keyPressed == 'k' {
-				//close all components and generate pgm file of final state
+				// close all components and generate pgm file of final state
 			} else if keyPressed == 'p' {
 
+				// RPC call for pause toggle
 				client.Call(stubs.PauseProcessingToggle, req, res)
 
-				//if the new state of the execution is paused
-				if paused {
+				if paused { // un-pausing
 					fmt.Println(res.OutString)
 					c.events <- StateChange{
 						CompletedTurns: res.CompletedTurns,
 						NewState:       Executing,
 					}
-				} else {
+				} else { // pausing
 					fmt.Println("Current turn: " + res.OutString)
 					c.events <- StateChange{
 						CompletedTurns: res.CompletedTurns,
 						NewState:       Paused,
 					}
 				}
-				paused = !paused
+				paused = !paused // toggle paused
 			}
 		}
 	}
@@ -128,7 +132,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	ticker.Stop()
 
 	// reports the final state using FinalTurnCompleteEvent
-
 	c.events <- FinalTurnComplete{CompletedTurns: res.TerminateTurns, Alive: res.AliveCells}
 
 	//updates filename for the final output PGM

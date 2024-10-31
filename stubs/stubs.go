@@ -9,7 +9,6 @@ var GolHandler = "GolOperations.ProcessTurns"
 var AliveCellHandler = "GolOperations.ReturnAliveCells"
 
 // SaveCurrentState occurs when the client presses the s key. It will force output of a PGM file of the current state
-// TODO put this in the response and then use the output event to make output file
 var SaveCurrentState = "GolOperations.SaveCurrentState"
 
 // CloseClientConnection occurs when the client presses the q key. It severs the connection between the client and the server,
