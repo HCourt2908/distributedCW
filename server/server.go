@@ -6,7 +6,7 @@ import (
 	"net/rpc"
 	"strconv"
 	"sync"
-
+	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -20,6 +20,7 @@ var currentWorld [][]byte
 var terminate bool = false
 var paused bool = false
 var terminateTurns int
+var killServer bool = false
 
 var mutex sync.Mutex
 var endCurrentStateChan = make(chan bool) // used to stop holdCurrentState goroutine when game ends
@@ -49,6 +50,7 @@ func (g *GolOperations) ProcessTurns(req stubs.Request, res *stubs.Response) (er
 	// to allow new clients to join server and one leaves
 	terminate = false
 	paused = false
+	killServer = false
 
 	//three channels to send the no. of turns completed, the no. of alive cells and the current world
 	updateState := make(chan bool)
@@ -176,6 +178,16 @@ func (g *GolOperations) CloseClientConnection(req stubs.Request, res *stubs.Resp
 
 }
 
+func (g *GolOperations) CloseAllComponents(req stubs.Request, res *stubs.Response) (err error) {
+	//disconnect the client and close the server
+	mutex.Lock()
+	terminate = true
+	killServer = true
+	mutex.Unlock()
+
+	return
+}
+
 // code used directly from CSA Lab 1
 func calculateNextState(ImageHeight, ImageWidth int, world [][]byte) [][]byte {
 
@@ -231,5 +243,15 @@ func main() {
 	rpc.Register(&GolOperations{})
 	listener, _ := net.Listen("tcp", ":"+*pAddr)
 	defer listener.Close()
+	//checks if the server is supposed to be killed
+	go func() {
+		for {
+			if killServer {
+				time.Sleep(1 * time.Second)
+				listener.Close()
+			}
+		}
+	}()
 	rpc.Accept(listener)
+
 }

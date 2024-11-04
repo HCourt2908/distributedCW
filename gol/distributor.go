@@ -106,6 +106,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 			} else if keyPressed == 'k' {
 				// close all components and generate pgm file of final state
+				client.Call(stubs.CloseAllComponents, req, res)
 			} else if keyPressed == 'p' {
 
 				// RPC call for pause toggle
