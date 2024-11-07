@@ -1,7 +1,6 @@
 package gol
 
 import (
-	"fmt"
 	"net/rpc"
 	"strconv"
 	"time"
@@ -65,7 +64,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	paused := false // game is initially not paused
 
 	// RPC call runs concurrently with execute loop
-	runGol := client.Go(stubs.GolHandler, req, res, nil)
+	runGol := client.Go(stubs.Broker, req, res, nil)
 
 	//creates a new ticker to sound every two seconds
 	ticker := time.NewTicker(2 * time.Second)
@@ -83,7 +82,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 		case <-ticker.C:
 			// RPC call for ticker
-			client.Call(stubs.AliveCellHandler, req, res)
+			client.Call(stubs.BrokerAliveCellHandler, req, res)
 
 			//creates a new event based on the server's response
 			c.events <- AliveCellsCount{
@@ -94,7 +93,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		case keyPressed := <-keyPresses:
 
 			if keyPressed == 's' {
-				client.Call(stubs.SaveCurrentState, req, res)
+				client.Call(stubs.BrokerSaveCurrentState, req, res)
 
 				currentStateFileName := filename + "x" + strconv.Itoa(res.CompletedTurns)
 
@@ -102,24 +101,22 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 			} else if keyPressed == 'q' {
 				// close client without affecting the server
-				client.Call(stubs.CloseClientConnection, req, res)
+				client.Call(stubs.BrokerCloseClientConnection, req, res)
 
 			} else if keyPressed == 'k' {
 				// close all components and generate pgm file of final state
-				client.Call(stubs.CloseAllComponents, req, res)
+				client.Call(stubs.BrokerCloseAllComponents, req, res)
 			} else if keyPressed == 'p' {
 
 				// RPC call for pause toggle
-				client.Call(stubs.PauseProcessingToggle, req, res)
+				client.Call(stubs.BrokerPauseProcessingToggle, req, res)
 
 				if paused { // un-pausing
-					fmt.Println(res.OutString)
 					c.events <- StateChange{
 						CompletedTurns: res.CompletedTurns,
 						NewState:       Executing,
 					}
 				} else { // pausing
-					fmt.Println("Current turn: " + res.OutString)
 					c.events <- StateChange{
 						CompletedTurns: res.CompletedTurns,
 						NewState:       Paused,
