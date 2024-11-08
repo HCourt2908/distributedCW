@@ -9,6 +9,7 @@ import (
 )
 
 var killServer = false
+var numberOfThreads int
 
 type GolOperations struct{}
 
@@ -33,11 +34,39 @@ func (g *GolOperations) CalculateNextState(req *stubs.ServerRequest, res *stubs.
 		endIndex = ImageHeight
 	}
 
-	//only makes the number of rows that it will be processing
-	newWorld := make([][]byte, endIndex-startIndex)
-	for i := range newWorld {
-		newWorld[i] = make([]byte, ImageWidth)
-		copy(newWorld[i], world[i+startIndex])
+	totalRows := endIndex - startIndex
+	rowsPerThread := totalRows / numberOfThreads
+
+	threadSlice := make([]chan [][]byte, numberOfThreads)
+
+	for i, _ := range threadSlice {
+		threadSlice[i] = make(chan [][]byte)
+	}
+
+	for i, _ := range threadSlice {
+		if i == len(threadSlice)-1 {
+			go UpdateCells(world, startIndex+(i*rowsPerThread), endIndex, ImageHeight, ImageWidth, threadSlice[i])
+		} else {
+			go UpdateCells(world, startIndex+(i*rowsPerThread), startIndex+((i+1)*rowsPerThread), ImageHeight, ImageWidth, threadSlice[i])
+		}
+	}
+
+	newWorld := make([][]byte, 0)
+
+	for i, _ := range threadSlice {
+		newWorld = append(newWorld, <-threadSlice[i]...)
+	}
+
+	res.World = newWorld
+
+	return
+}
+
+func UpdateCells(world [][]byte, startIndex, endIndex, ImageHeight, ImageWidth int, rowsChan chan [][]byte) {
+	workerWorld := make([][]byte, endIndex-startIndex)
+	for i := range workerWorld {
+		workerWorld[i] = make([]byte, ImageWidth)
+		copy(workerWorld[i], world[i+startIndex])
 	}
 
 	for i := startIndex; i < endIndex; i++ {
@@ -53,18 +82,16 @@ func (g *GolOperations) CalculateNextState(req *stubs.ServerRequest, res *stubs.
 			if world[i][j] == 255 {
 				if (liveNeighbours < 2) || (liveNeighbours > 3) {
 					//i-startIndex because the startIndex may be something like 8, but newWorld starts at index 0
-					newWorld[i-startIndex][j] = 0
+					workerWorld[i-startIndex][j] = 0
 				}
 			} else if world[i][j] == 0 {
 				if liveNeighbours == 3 {
-					newWorld[i-startIndex][j] = 255
+					workerWorld[i-startIndex][j] = 255
 				}
 			}
 		}
 	}
-
-	res.World = newWorld
-
+	rowsChan <- workerWorld
 	return
 }
 
@@ -77,7 +104,9 @@ func (g *GolOperations) KillServer(req stubs.Request, res *stubs.Response) (err 
 
 func main() {
 	pAddr := flag.String("port", "8031", "Port to listen on")
+	pThreads := flag.Int("threads", 1, "Number of threads to use")
 	flag.Parse()
+	numberOfThreads = *pThreads
 	//registers the golOperations with rpc, to allow the client to call these functions
 	rpc.Register(&GolOperations{})
 	listener, _ := net.Listen("tcp", ":"+*pAddr)

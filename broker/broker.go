@@ -23,7 +23,7 @@ var terminateTurns int
 var killBroker bool = false
 
 // tells the program how big to make the slices containing the information related to each server
-var numberOfServers = 4
+var numberOfServers = 2
 var servers = make([]*rpc.Client, numberOfServers)
 
 var ips = []string{
