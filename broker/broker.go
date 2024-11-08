@@ -39,7 +39,7 @@ var endCurrentStateChan = make(chan bool)
 var currentAliveCellCount int
 var currentAliveCells []util.Cell
 
-// goroutine holds the current state of the game (no. of alive cells, no. of completed turns, current world)
+// goroutine holds the current state of the game (no. of alive cells, no. of completed turns, current world etc.)
 func holdCurrentState(updateState chan bool, updateStateTurns chan int, updateNumAliveCells chan int, updateAliveCells chan []util.Cell, updateStateWorld chan [][]byte) {
 	for {
 		select {
@@ -57,8 +57,6 @@ func holdCurrentState(updateState chan bool, updateStateTurns chan int, updateNu
 	}
 }
 
-// connects to all the AWS nodes
-// for now ill just make it work for one server
 func (b *BrokerOperations) Broker(req stubs.Request, res *stubs.Response) (err error) {
 	//sets the game to be un-paused and not terminating on initialisation
 	//to allow new clients to join server and one leaves
@@ -122,14 +120,14 @@ func (b *BrokerOperations) Broker(req stubs.Request, res *stubs.Response) (err e
 	for count := 0; count < Turns; count++ {
 		//make a slice to hold all the rpc call pointers. this is done for syncing reasons, e.g., we want to put together the sections of world in order, and only when they're done should we do this
 		doneProcessing := make([]*rpc.Call, numberOfServers)
-		for i, x := range servers {
+		for i, server := range servers {
 			//make a non-blocking rpc call to each server to process their section of GOL
-			doneProcessing[i] = x.Go(stubs.CalculateNextState, serverRequests[i], serverResponses[i], nil)
+			doneProcessing[i] = server.Go(stubs.CalculateNextState, serverRequests[i], serverResponses[i], nil)
 		}
 
 		//create an empty 2d slice to eventually hold the new full world (advanced by one turn)
 		connWorld := make([][]byte, ImageHeight)
-		for i, x := range serverResponses {
+		for i, response := range serverResponses {
 			//we need to add the slices back in order, so we wait until the first one is done, then the second one, etc...
 			synced := false
 			for {
@@ -146,15 +144,15 @@ func (b *BrokerOperations) Broker(req stubs.Request, res *stubs.Response) (err e
 
 			//adds the results slice by slice to connWorld
 			//for each server, it will start putting in slices at the 'startIndex' and end when there's nothing left to put in
-			for j, y := range x.World {
+			for j, row := range response.World {
 				connWorld[i*(ImageHeight/numberOfServers)+j] = make([]byte, ImageWidth)
-				copy(connWorld[i*(ImageHeight/numberOfServers)+j], y)
+				copy(connWorld[i*(ImageHeight/numberOfServers)+j], row)
 			}
 		}
 
 		//since we use the same serverRequest structs for each turn, we need to update their version of the current world
-		for _, x := range serverRequests {
-			copy(x.World, connWorld)
+		for _, request := range serverRequests {
+			copy(request.World, connWorld)
 		}
 
 		currentAliveCells = calculateAliveCells(ImageHeight, ImageWidth, connWorld)
@@ -276,7 +274,7 @@ func (b *BrokerOperations) CloseClientConnection(req stubs.Request, res *stubs.R
 func (b *BrokerOperations) CloseAllComponents(req stubs.Request, res *stubs.Response) (err error) {
 	mutex.Lock()
 	for _, server := range servers {
-		//nil args are okay because the kill server function literally only sets one server variable to true
+		//iterates over all servers and sends a kill request to all of them
 		server.Call(stubs.KillServer, req, res)
 	}
 	time.Sleep(25 * time.Millisecond)

@@ -34,16 +34,21 @@ func (g *GolOperations) CalculateNextState(req *stubs.ServerRequest, res *stubs.
 		endIndex = ImageHeight
 	}
 
+	//calculates how many rows should be allocated to each thread
 	totalRows := endIndex - startIndex
 	rowsPerThread := totalRows / numberOfThreads
 
+	//makes a slice to hold the channels of each thread
 	threadSlice := make([]chan [][]byte, numberOfThreads)
 
+	//initialise channel in each index of the slice
 	for i, _ := range threadSlice {
 		threadSlice[i] = make(chan [][]byte)
 	}
 
+	//non-blocking call to UpdateCells for each thread, which will send the processed rows down the channel
 	for i, _ := range threadSlice {
+		//the final thread will pick up the remaining rows if the number of threads doesn't divide the number of rows evenly
 		if i == len(threadSlice)-1 {
 			go UpdateCells(world, startIndex+(i*rowsPerThread), endIndex, ImageHeight, ImageWidth, threadSlice[i])
 		} else {
@@ -51,8 +56,10 @@ func (g *GolOperations) CalculateNextState(req *stubs.ServerRequest, res *stubs.
 		}
 	}
 
+	//makes a new world to concatenate all the rows in order
 	newWorld := make([][]byte, 0)
 
+	//concatenates all the newly processed rows in order
 	for i, _ := range threadSlice {
 		newWorld = append(newWorld, <-threadSlice[i]...)
 	}
@@ -63,6 +70,7 @@ func (g *GolOperations) CalculateNextState(req *stubs.ServerRequest, res *stubs.
 }
 
 func UpdateCells(world [][]byte, startIndex, endIndex, ImageHeight, ImageWidth int, rowsChan chan [][]byte) {
+
 	workerWorld := make([][]byte, endIndex-startIndex)
 	for i := range workerWorld {
 		workerWorld[i] = make([]byte, ImageWidth)
